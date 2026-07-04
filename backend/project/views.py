@@ -1,25 +1,94 @@
-from django.shortcuts import render
-from django.contrib.auth.models import Group, User
-from rest_framework import permissions, viewsets
+from django.contrib.auth import get_user_model
+from rest_framework import viewsets, permissions, filters, status
+from rest_framework.decorators import action
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.response import Response
+import django_filters.rest_framework
 
-from tutorial.quickstart.serializers import GroupSerializer, UserSerializer
+from .models import Thread, Post
+from .serializers import UserSerializer, ThreadSerializer, PostSerializer
 
+User = get_user_model()
+DEFAULT_AVATAR_NAME = "avatars/default.jpg"
 
 class UserViewSet(viewsets.ModelViewSet):
-    """
-    API endpoint that allows users to be viewed or edited.
-    """
-
     queryset = User.objects.all().order_by("-date_joined")
     serializer_class = UserSerializer
+
+    filter_backends = [
+        django_filters.rest_framework.DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter,
+    ]
+    filterset_fields = {"email": ["exact", "iexact"]}
+    search_fields = ["^email"]
+    ordering_fields = ["email", "id"]
+
+    def get_permissions(self):
+        if self.action == "create":
+            return [permissions.AllowAny()]
+        if self.request.method == "GET" and "email" in self.request.query_params:
+            return [permissions.AllowAny()]
+        if self.action in ("list", "destroy"):
+            return [permissions.IsAdminUser()]
+        return [permissions.IsAuthenticated()]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        email = (self.request.query_params.get("email") or "").strip()
+        if email:
+            qs = qs.filter(email__iexact=email)
+        return qs
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="avatar",
+        parser_classes=[MultiPartParser, FormParser],
+        permission_classes=[permissions.IsAuthenticated],
+    )
+    def set_avatar(self, request, pk=None):
+        user = self.get_object()
+        file = request.FILES.get("avatar")
+
+        if not file:
+            return Response(
+                {"detail": "Aucun fichier 'avatar' fourni."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        old_pp = user.profilPicture
+        if old_pp and old_pp.name != DEFAULT_AVATAR_NAME:
+            old_pp.delete(save=False)
+
+        user.profilPicture = file
+        user.save()
+
+        url = request.build_absolute_uri(user.profilPicture.url)
+        return Response({"profilPicture": url}, status=status.HTTP_200_OK)
+
+    @set_avatar.mapping.delete
+    def delete_avatar(self, request, pk=None):
+        user = self.get_object()
+
+        old_pp = user.profilPicture
+        if old_pp and old_pp.name != DEFAULT_AVATAR_NAME:
+            old_pp.delete(save=False)
+
+        user.profilPicture = DEFAULT_AVATAR_NAME
+        user.save()
+
+        url = request.build_absolute_uri(user.profilPicture.url)
+        return Response({"profilPicture": url}, status=status.HTTP_200_OK)
+
+
+class ThreadViewSet(viewsets.ModelViewSet):
+    queryset = Thread.objects.all().order_by("-created_at")
+    serializer_class = ThreadSerializer
     permission_classes = [permissions.IsAuthenticated]
 
 
-class GroupViewSet(viewsets.ModelViewSet):
-    """
-    API endpoint that allows groups to be viewed or edited.
-    """
-
-    queryset = Group.objects.all().order_by("name")
-    serializer_class = GroupSerializer
+class PostViewSet(viewsets.ModelViewSet):
+    queryset = Post.objects.all().order_by("-id")
+    serializer_class = PostSerializer
     permission_classes = [permissions.IsAuthenticated]
