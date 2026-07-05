@@ -22,3 +22,11 @@ export async function findThreadsByName(name: string): Promise<Thread[]> {
 
     return list.map(Thread.fromObject);
 }
+
+export async function findMyThreads(): Promise<Thread[]> {
+    const data = await apiFetch("threads/", "GET");
+
+    const list = Array.isArray(data) ? data : data.results ?? [];
+
+    return list.map(Thread.fromObject);
+}

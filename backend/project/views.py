@@ -98,20 +98,27 @@ class ThreadViewSet(viewsets.ModelViewSet):
     ]
 
     filterset_fields = {
-        "name": ["exact", "iexact"],
+        "name": ["exact", "iexact", "icontains"],
     }
 
-    search_fields = ["^name"]
+    search_fields = ["^name", "members__username"]
     ordering_fields = ["name", "created_at", "id"]
 
     def get_queryset(self):
         user = self.request.user
 
+        qs = (
+            Thread.objects
+            .prefetch_related("members", "posts", "posts__sender", "posts__liked")
+            .order_by("-created_at")
+        )
+
         if user.is_staff:
-            return Thread.objects.all().order_by("-created_at")
+            return qs.distinct()
 
-        return Thread.objects.filter(members=user).order_by("-created_at")
+        return qs.filter(members=user).order_by("-created_at").distinct()
 
+from rest_framework.exceptions import PermissionDenied
 
 class PostViewSet(viewsets.ModelViewSet):
     serializer_class = PostSerializer
@@ -124,3 +131,12 @@ class PostViewSet(viewsets.ModelViewSet):
             return Post.objects.all().order_by("-id")
 
         return Post.objects.filter(thread__members=user).order_by("-id")
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        thread = serializer.validated_data["thread"]
+
+        if not user.is_staff and not thread.members.filter(id=user.id).exists():
+            raise PermissionDenied("Tu ne peux pas poster dans ce thread.")
+
+        serializer.save(sender=user)

@@ -98,10 +98,6 @@ export class Post {
             posted: String(data.posted ?? ""),
         });
     }
-
-    static fromJSON(json: string): Post {
-        return Post.fromObject(JSON.parse(json));
-    }
 }
 
 export class Thread {
@@ -122,18 +118,14 @@ export class Thread {
 
         return new Thread({
             id: Number(data.id ?? 0),
-            posts: Array.isArray(data.posts)
-                ? data.posts.map(Post.fromObject)
-                : [],
+            name: String(data.name ?? ""),
+            created_at: data.created_at ? new Date(data.created_at) : null,
             members: Array.isArray(data.members)
                 ? data.members.map(User.fromObject)
                 : [],
-            created_at: data.created_at ? new Date(data.created_at) : null,
-            name: String(data.name ?? ""),
+            posts: Array.isArray(data.posts)
+                ? data.posts.map(Post.fromObject)
+                : [],
         });
-    }
-
-    static fromJSON(json: string): Thread {
-        return Thread.fromObject(JSON.parse(json));
     }
 }
