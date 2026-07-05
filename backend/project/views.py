@@ -1,3 +1,5 @@
+# backend/project/views.py
+
 from django.contrib.auth import get_user_model
 from rest_framework import viewsets, permissions, filters, status
 from rest_framework.decorators import action
@@ -11,8 +13,9 @@ from .serializers import UserSerializer, ThreadSerializer, PostSerializer
 User = get_user_model()
 DEFAULT_AVATAR_NAME = "avatars/default.jpg"
 
+
 class UserViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.all().order_by("-date_joined")
+    queryset = User.objects.all().order_by("username")
     serializer_class = UserSerializer
 
     filter_backends = [
@@ -20,25 +23,27 @@ class UserViewSet(viewsets.ModelViewSet):
         filters.SearchFilter,
         filters.OrderingFilter,
     ]
-    filterset_fields = {"email": ["exact", "iexact"]}
-    search_fields = ["^email"]
-    ordering_fields = ["email", "id"]
 
+    filterset_fields = {
+        "username": ["exact", "iexact"],
+        "email": ["exact", "iexact"],
+    }
+
+    search_fields = ["^username"]
+    ordering_fields = ["username", "id"]
+
+    
     def get_permissions(self):
         if self.action == "create":
             return [permissions.AllowAny()]
-        if self.request.method == "GET" and "email" in self.request.query_params:
-            return [permissions.AllowAny()]
-        if self.action in ("list", "destroy"):
-            return [permissions.IsAdminUser()]
-        return [permissions.IsAuthenticated()]
 
-    def get_queryset(self):
-        qs = super().get_queryset()
-        email = (self.request.query_params.get("email") or "").strip()
-        if email:
-            qs = qs.filter(email__iexact=email)
-        return qs
+        if self.action in ("list", "retrieve", "update", "partial_update"):
+            return [permissions.IsAuthenticated()]
+
+        if self.action == "destroy":
+            return [permissions.IsAdminUser()]
+
+        return [permissions.IsAuthenticated()]
 
     @action(
         detail=True,
@@ -83,12 +88,39 @@ class UserViewSet(viewsets.ModelViewSet):
 
 
 class ThreadViewSet(viewsets.ModelViewSet):
-    queryset = Thread.objects.all().order_by("-created_at")
     serializer_class = ThreadSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    filter_backends = [
+        django_filters.rest_framework.DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter,
+    ]
+
+    filterset_fields = {
+        "name": ["exact", "iexact"],
+    }
+
+    search_fields = ["^name"]
+    ordering_fields = ["name", "created_at", "id"]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.is_staff:
+            return Thread.objects.all().order_by("-created_at")
+
+        return Thread.objects.filter(members=user).order_by("-created_at")
+
 
 class PostViewSet(viewsets.ModelViewSet):
-    queryset = Post.objects.all().order_by("-id")
     serializer_class = PostSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.is_staff:
+            return Post.objects.all().order_by("-id")
+
+        return Post.objects.filter(thread__members=user).order_by("-id")

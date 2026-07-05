@@ -4,14 +4,14 @@ from .models import User, Thread, Post
 class MiniUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "username", "profilPicture"]
+        fields = ["username", "profilPicture", "date_joined", "last_login"]
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "profilPicture", "password"]
+        fields = ["username", "email", "profilPicture", "password", "threads", "date_joined", "last_login"]
         read_only_fields = ["id"]
 
     def create(self, validated_data):
@@ -27,8 +27,8 @@ class UserSerializer(serializers.ModelSerializer):
 class ThreadSerializer(serializers.ModelSerializer):
     class Meta:
         model = Thread
-        fields = ["id", "name", "members", "created_at"]
-        read_only_fields = ["id", "created_at"]
+        fields = ["name", "members", "created_at", "posts"]
+        read_only_fields = ["created_at"]
 
 class PostSerializer(serializers.ModelSerializer):
     tags = serializers.MultipleChoiceField(
@@ -38,5 +38,5 @@ class PostSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Post
-        fields = ["id", "tags", "group", "sender", "message", "image_content", "liked", "posted"]
+        fields = ["tags", "sender", "message", "image_content", "liked", "posted"]
         read_only_fields = ["id"]

@@ -6,21 +6,63 @@ from .models import User, Thread, Post
 
 @admin.register(User)
 class UserAdmin(DjangoUserAdmin):
-    list_display = ("id", "username", "email", "is_staff", "is_superuser")
+    list_display = (
+        "id",
+        "username",
+        "email",
+        "is_staff",
+        "is_superuser",
+    )
     search_fields = ("username", "email")
     list_filter = ("is_staff", "is_superuser", "is_active")
 
 
 @admin.register(Thread)
 class ThreadAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "created_at")
-    search_fields = ("name",)
+    list_display = (
+        "id",
+        "name",
+        "created_at",
+        "members_count",
+        "posts_count",
+    )
+    search_fields = ("name", "members__username")
     filter_horizontal = ("members",)
+
+    def members_count(self, obj):
+        return obj.members.count()
+
+    members_count.short_description = "Membres"
+
+    def posts_count(self, obj):
+        return obj.posts.count()
+
+    posts_count.short_description = "Posts"
 
 
 @admin.register(Post)
 class PostAdmin(admin.ModelAdmin):
-    list_display = ("id", "group", "sender", "message", "tags")
-    search_fields = ("message", "sender__username", "group__name")
-    list_filter = ("tags",)
+    list_display = (
+        "id",
+        "thread",
+        "sender",
+        "message",
+        "tags_display",
+        "likes_count",
+    )
+    search_fields = (
+        "message",
+        "sender__username",
+        "thread__name",
+    )
     filter_horizontal = ("liked",)
+
+    def tags_display(self, obj):
+        return ", ".join(obj.tags or [])
+
+    tags_display.short_description = "Tags"
+
+    def likes_count(self, obj):
+        return obj.liked.count()
+
+    likes_count.short_description = "Likes"
