@@ -72,7 +72,7 @@ export class Post {
     message: string = "";
     image_content: string | null = null;
     liked: User[] = [];
-    posted: Date = new Date();
+    posted: Date | null = null;
 
     constructor(data: Partial<Post> = {}) {
         Object.assign(this, data);
@@ -95,7 +95,7 @@ export class Post {
             liked: Array.isArray(data.liked)
                 ? data.liked.map(User.fromObject)
                 : [],
-            posted: String(data.posted ?? ""),
+            posted: data.posted ? new Date(data.posted) : null,
         });
     }
 }
