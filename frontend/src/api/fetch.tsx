@@ -1,4 +1,5 @@
-const BACKEND_URL = "http://localhost:8000";
+const BACKEND_URL =
+    process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000";
 
 function getCookie(name: string): string | null {
     if (typeof document === "undefined") return null;

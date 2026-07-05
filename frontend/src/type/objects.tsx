@@ -72,7 +72,7 @@ export class Post {
     message: string = "";
     image_content: string | null = null;
     liked: User[] = [];
-    posted: string = "";
+    posted: Date = new Date();
 
     constructor(data: Partial<Post> = {}) {
         Object.assign(this, data);

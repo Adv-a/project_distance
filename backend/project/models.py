@@ -72,7 +72,7 @@ class Post(models.Model):
         blank=True,
     )
 
-    posted = models.TextField(default="", blank=True)
+    posted = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.message[:50]
