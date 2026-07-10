@@ -23,3 +23,15 @@ export async function getMe(): Promise<ConnectedUser> {
     const data = await apiFetch("auth/me/", "GET");
     return ConnectedUser.fromObject(data);
 }
+
+export async function changePassword(
+    oldPassword: string,
+    newPassword: string
+): Promise<ConnectedUser> {
+    const data = await apiFetch("auth/change-password/", "POST", {
+        old_password: oldPassword,
+        new_password: newPassword,
+    });
+
+    return ConnectedUser.fromObject(data.user);
+}

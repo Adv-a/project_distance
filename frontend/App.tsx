@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 
+import { getMe } from "./src/api/auth";
+import { ConnectedUser } from "./src/types";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { HomeScreen } from "./src/screens/HomeScreen";
-import { getMe } from "./src/api/auth";
-import { ConnectedUser } from "./types";
+import { ChangePasswordScreen } from "./src/screens/ChangePasswordScreen";
 
 export default function App() {
     const [user, setUser] = useState<ConnectedUser | null>(null);
@@ -25,13 +26,9 @@ export default function App() {
         restoreSession();
     }, []);
 
-    function handleLogout() {
-        setUser(null);
-    }
-
     if (loading) {
         return (
-            <View style={{ flex: 1, justifyContent: "center" }}>
+            <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
                 <ActivityIndicator />
             </View>
         );
@@ -41,5 +38,14 @@ export default function App() {
         return <LoginScreen onLogin={setUser} />;
     }
 
-    return <HomeScreen connectedUser={user} onLogout={handleLogout} />;
+    if (user.must_change_password) {
+        return <ChangePasswordScreen onPasswordChanged={setUser} />;
+    }
+
+    return (
+        <HomeScreen
+            connectedUser={user}
+            onLogout={() => setUser(null)}
+        />
+    );
 }

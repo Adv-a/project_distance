@@ -13,6 +13,8 @@ export class User {
     username: string = "";
     last_login: Date | null = null;
     date_joined: Date | null = null;
+    is_moderator: boolean = false;
+    must_change_password: boolean = false;
 
     constructor(data: Partial<User> = {}) {
         Object.assign(this, data);
@@ -32,6 +34,8 @@ export class User {
                 typeof data.profilPicture === "string"
                     ? data.profilPicture
                     : null,
+            is_moderator: data.is_moderator ?? false,
+            must_change_password: data.must_change_password ?? false,
         });
     }
 
@@ -42,6 +46,8 @@ export class User {
 
 export class ConnectedUser extends User {
     email: string = "";
+    is_moderator: boolean = false;
+    must_change_password: boolean = false;
 
     constructor(data: Partial<ConnectedUser> = {}) {
         super(data);
@@ -57,11 +63,9 @@ export class ConnectedUser extends User {
         return new ConnectedUser({
             ...baseUser,
             email: String(data.email ?? ""),
+            is_moderator: Boolean(data.is_moderator ?? false),
+            must_change_password: Boolean(data.must_change_password ?? false),
         });
-    }
-
-    static fromJSON(json: string): ConnectedUser {
-        return ConnectedUser.fromObject(JSON.parse(json));
     }
 }
 

@@ -1,39 +1,98 @@
+import secrets
+
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
-from .models import User, Thread, Post
+
+from .models import Thread, Post
+
+User = get_user_model()
+
 
 class UserSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, required=False)
+    is_moderator = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["username", "email", "profilPicture", "password", "threads", "date_joined", "last_login"]
-        read_only_fields = ["id"]
+        fields = [
+            "id",
+            "username",
+            "email",
+            "profilPicture",
+            "last_login",
+            "date_joined",
+            "must_change_password",
+            "is_moderator",
+        ]
+        read_only_fields = [
+            "id",
+            "last_login",
+            "date_joined",
+            "must_change_password",
+            "is_moderator",
+        ]
 
-    def create(self, validated_data):
-        password = validated_data.pop("password", None)
-        user = User(**validated_data)
-        if password:
-            user.set_password(password)
-        else:
-            user.set_unusable_password()
-        user.save()
-        return user
+    def get_is_moderator(self, obj):
+        return (
+            obj.is_superuser
+            or obj.is_staff
+            or obj.groups.filter(name="moderators").exists()
+        )
+
 
 class MiniUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["id", "username", "profilPicture"]
 
+
+class ModeratorCreateUserSerializer(serializers.ModelSerializer):
+    temporary_password = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "username",
+            "email",
+            "profilPicture",
+            "must_change_password",
+            "temporary_password",
+        ]
+        read_only_fields = [
+            "id",
+            "must_change_password",
+            "temporary_password",
+        ]
+
+    def create(self, validated_data):
+        temporary_password = secrets.token_urlsafe(12)
+
+        user = User(
+            username=validated_data["username"],
+            email=validated_data.get("email", ""),
+            must_change_password=True,
+        )
+        user.set_password(temporary_password)
+        user.save()
+
+        self.temporary_password = temporary_password
+        return user
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["temporary_password"] = getattr(self, "temporary_password", None)
+        return data
+
+
 class PostSerializer(serializers.ModelSerializer):
     sender = MiniUserSerializer(read_only=True)
+    liked = MiniUserSerializer(many=True, read_only=True)
 
     thread_id = serializers.PrimaryKeyRelatedField(
         source="thread",
         queryset=Thread.objects.all(),
         write_only=True,
     )
-
-    liked = MiniUserSerializer(many=True, read_only=True)
 
     tags = serializers.MultipleChoiceField(
         choices=Post.PostTag.choices,
@@ -52,10 +111,24 @@ class PostSerializer(serializers.ModelSerializer):
             "liked",
             "posted",
         ]
-        read_only_fields = ["id", "sender", "liked"]
+        read_only_fields = [
+            "id",
+            "sender",
+            "liked",
+        ]
+
 
 class ThreadSerializer(serializers.ModelSerializer):
     members = MiniUserSerializer(many=True, read_only=True)
+
+    member_ids = serializers.PrimaryKeyRelatedField(
+        source="members",
+        queryset=User.objects.all(),
+        many=True,
+        write_only=True,
+        required=False,
+    )
+
     posts = PostSerializer(many=True, read_only=True)
 
     class Meta:
@@ -63,6 +136,13 @@ class ThreadSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "members",
+            "member_ids",
+            "created_at",
+            "posts",
+        ]
+        read_only_fields = [
+            "id",
             "members",
             "created_at",
             "posts",

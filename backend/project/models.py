@@ -13,6 +13,7 @@ class User(AbstractUser):
         null=True,
         default="avatars/default.jpg",
     )
+    must_change_password = models.BooleanField(default=False)
 
 
 class Thread(models.Model):
