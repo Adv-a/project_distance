@@ -55,7 +55,7 @@ class ThreadAdmin(admin.ModelAdmin):
 
 @admin.register(Post)
 class PostAdmin(admin.ModelAdmin):
-    list_display = ("id", "thread", "sender", "message", "tags_display", "likes_count")
+    list_display = ("id", "thread", "sender", "message", "tags_display", "likes_count", "posted")
     search_fields = ("message", "sender__username", "thread__name")
     filter_horizontal = ("liked",)
 

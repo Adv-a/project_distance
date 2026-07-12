@@ -1,8 +1,11 @@
-const BACKEND_URL =
-    process.env.EXPO_PUBLIC_API_URL ?? "";
+const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL ?? "";
+
+export type ApiMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 function getCookie(name: string): string | null {
-    if (typeof document === "undefined") return null;
+    if (typeof document === "undefined") {
+        return null;
+    }
 
     const value = `; ${document.cookie}`;
     const parts = value.split(`; ${name}=`);
@@ -13,8 +16,6 @@ function getCookie(name: string): string | null {
 
     return null;
 }
-
-type ApiMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export async function getCsrfToken(): Promise<string | null> {
     await fetch(`${BACKEND_URL}/api/auth/csrf/`, {
@@ -34,9 +35,14 @@ export async function apiFetch(
         ? endpoint.slice(1)
         : endpoint;
 
-    const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-    };
+    const isFormData =
+        typeof FormData !== "undefined" && body instanceof FormData;
+
+    const headers: Record<string, string> = {};
+
+    if (!isFormData) {
+        headers["Content-Type"] = "application/json";
+    }
 
     if (method !== "GET") {
         const csrfToken = getCookie("csrftoken") ?? await getCsrfToken();
@@ -46,14 +52,18 @@ export async function apiFetch(
         }
     }
 
-    const res = await fetch(`${BACKEND_URL}/api/${cleanEndpoint}`, {
+    const response = await fetch(`${BACKEND_URL}/api/${cleanEndpoint}`, {
         method,
         credentials: "include",
         headers,
-        body: body ? JSON.stringify(body) : undefined,
+        body: isFormData
+            ? body
+            : body !== undefined
+                ? JSON.stringify(body)
+                : undefined,
     });
 
-    const text = await res.text();
+    const text = await response.text();
 
     let data: any = null;
 
@@ -63,11 +73,13 @@ export async function apiFetch(
         data = text;
     }
 
-    if (!res.ok) {
+    if (!response.ok) {
         throw new Error(
             typeof data === "object" && data?.detail
-                ? data.detail
-                : `API error ${res.status}`
+                ? typeof data.detail === "string"
+                    ? data.detail
+                    : JSON.stringify(data.detail)
+                : `API error ${response.status}`
         );
     }
 

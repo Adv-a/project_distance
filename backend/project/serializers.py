@@ -2,8 +2,7 @@ import secrets
 
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
-
-from .models import Thread, Post
+from .models import Thread, Post, PostMedia
 
 User = get_user_model()
 
@@ -83,15 +82,27 @@ class ModeratorCreateUserSerializer(serializers.ModelSerializer):
         data["temporary_password"] = getattr(self, "temporary_password", None)
         return data
 
+class PostMediaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PostMedia
+        fields = [
+            "id",
+            "file",
+            "media_type",
+            "order",
+        ]
 
 class PostSerializer(serializers.ModelSerializer):
     sender = MiniUserSerializer(read_only=True)
     liked = MiniUserSerializer(many=True, read_only=True)
+    media = PostMediaSerializer(many=True, read_only=True)
+    can_edit = serializers.SerializerMethodField()
 
     thread_id = serializers.PrimaryKeyRelatedField(
         source="thread",
         queryset=Thread.objects.all(),
         write_only=True,
+        required=False,
     )
 
     tags = serializers.MultipleChoiceField(
@@ -108,15 +119,29 @@ class PostSerializer(serializers.ModelSerializer):
             "sender",
             "message",
             "image_content",
+            "video_content",
+            "media",
             "liked",
             "posted",
+            "can_edit",
         ]
         read_only_fields = [
             "id",
             "sender",
             "liked",
+            "media",
+            "can_edit",
         ]
 
+    def get_can_edit(self, obj):
+        request = self.context.get("request")
+
+        if not request or not request.user.is_authenticated:
+            return False
+
+        user = request.user
+
+        return user.is_staff or obj.sender_id == user.id
 
 class ThreadSerializer(serializers.ModelSerializer):
     members = MiniUserSerializer(many=True, read_only=True)

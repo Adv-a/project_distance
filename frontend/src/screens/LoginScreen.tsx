@@ -66,7 +66,15 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                 secureTextEntry
             />
 
-            {error ? <Text style={styles.error}>{error}</Text> : null}
+            {error ? (
+                <Text style={styles.error}>
+                    {error instanceof Error
+                        ? error.message
+                        : typeof error === "string"
+                            ? error
+                            : JSON.stringify(error)}
+                </Text>
+            ) : null}
 
             <Pressable
                 style={styles.button}

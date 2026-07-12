@@ -5,11 +5,15 @@ from rest_framework import viewsets, permissions, filters, status
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 import django_filters.rest_framework
+from django.db.models import F
 from .permissions import IsModerator, HasChangedInitialPassword, is_moderator
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
-from .models import Thread, Post
+import json
+
+from .models import Thread, Post, PostMedia
 from .serializers import UserSerializer, ModeratorCreateUserSerializer, ThreadSerializer, PostSerializer
 
 User = get_user_model()
@@ -157,14 +161,77 @@ class ThreadViewSet(viewsets.ModelViewSet):
 class PostViewSet(viewsets.ModelViewSet):
     serializer_class = PostSerializer
     permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
         user = self.request.user
 
-        if user.is_staff:
-            return Post.objects.all().order_by("-id")
+        queryset = Post.objects.select_related(
+            "sender",
+            "thread",
+        ).prefetch_related(
+            "liked",
+            "media",
+        )
 
-        return Post.objects.filter(thread__members=user).order_by("-id")
+        if user.is_staff:
+            return queryset.all().order_by("-posted", "-id")
+
+        return queryset.filter(thread__members=user).order_by("-posted", "-id")
+
+    def _check_can_edit_post(self, post):
+        user = self.request.user
+
+        if not user.is_staff and post.sender_id != user.id:
+            raise PermissionDenied("Tu ne peux modifier que tes propres posts.")
+
+    def _create_media_from_files(self, post):
+        media_files = self.request.FILES.getlist("media_files")
+
+        if not media_files:
+            return
+
+        existing_count = post.media.count()
+
+        if existing_count + len(media_files) > 10:
+            raise ValidationError("Tu peux avoir maximum 10 médias par post.")
+
+        current_max_order = existing_count
+
+        for index, file in enumerate(media_files):
+            content_type = file.content_type or ""
+
+            if content_type.startswith("image/"):
+                media_type = PostMedia.MediaType.IMAGE
+            elif content_type.startswith("video/"):
+                media_type = PostMedia.MediaType.VIDEO
+            else:
+                raise ValidationError(
+                    f"Type de fichier non supporté : {content_type}"
+                )
+
+            PostMedia.objects.create(
+                post=post,
+                file=file,
+                media_type=media_type,
+                order=current_max_order + index,
+            )
+
+    def _delete_requested_media(self, post):
+        raw_value = self.request.data.get("delete_media_ids")
+
+        if not raw_value:
+            return
+
+        try:
+            media_ids = json.loads(raw_value)
+        except json.JSONDecodeError:
+            raise ValidationError("delete_media_ids doit être une liste JSON.")
+
+        if not isinstance(media_ids, list):
+            raise ValidationError("delete_media_ids doit être une liste.")
+
+        post.media.filter(id__in=media_ids).delete()
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -173,4 +240,23 @@ class PostViewSet(viewsets.ModelViewSet):
         if not user.is_staff and not thread.members.filter(id=user.id).exists():
             raise PermissionDenied("Tu ne peux pas poster dans ce thread.")
 
-        serializer.save(sender=user)
+        post = serializer.save(sender=user)
+
+        self._create_media_from_files(post)
+
+    def perform_update(self, serializer):
+        post = serializer.instance
+
+        self._check_can_edit_post(post)
+
+        updated_post = serializer.save(
+            sender=post.sender,
+            thread=post.thread,
+        )
+
+        self._delete_requested_media(updated_post)
+        self._create_media_from_files(updated_post)
+
+    def perform_destroy(self, instance):
+        self._check_can_edit_post(instance)
+        instance.delete()

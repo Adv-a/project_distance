@@ -8,133 +8,153 @@ import {
     ScrollView,
 } from "react-native";
 
-import { logout } from "../api/auth";
-import { findMyThreads } from "../api/threads";
-import { ConnectedUser, Thread } from "../type/objects";
-import { MasonryBoard } from "../components/MasonryBoard";
-import { PostModal } from "../components/PostModal";
-import { ModeratorModal } from "../components/ModeratorModal";
-import { colors } from "../theme";
+    import { EditPostModal } from "../components/EditPostModal";
+    import { Post } from "../type/objects";
 
-type HomeScreenProps = {
-    connectedUser: ConnectedUser;
-    onLogout: () => void;
-};
+    import { logout } from "../api/auth";
+    import { findMyThreads } from "../api/threads";
+    import { ConnectedUser, Thread } from "../type/objects";
+    import { MasonryBoard } from "../components/MasonryBoard";
+    import { PostModal } from "../components/PostModal";
+    import { ModeratorModal } from "../components/ModeratorModal";
+    import { colors } from "../theme";
 
-export function HomeScreen({ connectedUser, onLogout }: HomeScreenProps) {
-    const [threads, setThreads] = useState<Thread[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [logoutLoading, setLogoutLoading] = useState(false);
-    const [postModalVisible, setPostModalVisible] = useState(false);
-    const [moderatorModalVisible, setModeratorModalVisible] = useState(false);
-    const [error, setError] = useState("");
+    type HomeScreenProps = {
+        connectedUser: ConnectedUser;
+        onLogout: () => void;
+    };
 
-    useEffect(() => {
-        loadThreads();
-    }, []);
+    export function HomeScreen({ connectedUser, onLogout }: HomeScreenProps) {
+        const [threads, setThreads] = useState<Thread[]>([]);
+        const [loading, setLoading] = useState(false);
+        const [logoutLoading, setLogoutLoading] = useState(false);
+        const [postModalVisible, setPostModalVisible] = useState(false);
+        const [moderatorModalVisible, setModeratorModalVisible] = useState(false);
+        const [error, setError] = useState("");
+        const [editingPost, setEditingPost] = useState<Post | null>(null);
 
-    async function loadThreads() {
-        try {
-            setLoading(true);
-            setError("");
+        useEffect(() => {
+            loadThreads();
+        }, []);
 
-            const result = await findMyThreads();
-            setThreads(result);
-        } catch (err) {
-            console.error(err);
-            setError("Impossible de charger les mood boards.");
-        } finally {
-            setLoading(false);
+        async function loadThreads() {
+            try {
+                setLoading(true);
+                setError("");
+
+                const result = await findMyThreads();
+                setThreads(result);
+            } catch (err) {
+                console.error(err);
+                setError("Impossible de charger les mood boards.");
+            } finally {
+                setLoading(false);
+            }
         }
-    }
 
-    async function handleLogout() {
-        try {
-            setLogoutLoading(true);
-            await logout();
-            onLogout();
-        } catch (err) {
-            console.error(err);
-            setError("Erreur pendant la déconnexion.");
-        } finally {
-            setLogoutLoading(false);
+        async function handleLogout() {
+            try {
+                setLogoutLoading(true);
+                await logout();
+                onLogout();
+            } catch (err) {
+                console.error(err);
+                setError("Erreur pendant la déconnexion.");
+            } finally {
+                setLogoutLoading(false);
+            }
         }
-    }
 
-    return (
-        <View style={styles.page}>
-            <ScrollView contentContainerStyle={styles.container}>
-                <View style={styles.hero}>
-                    <View style={styles.heroText}>
-                        <Text style={styles.kicker}>Mood board partagé</Text>
-                        <Text style={styles.title}>
-                            Tes inspirations, tes threads, tes idées.
-                        </Text>
-                        <Text style={styles.subtitle}>
-                            Connecté en tant que {connectedUser.username}
-                        </Text>
-                    </View>
-
-                    <View style={styles.actions}>
-                        <Pressable
-                            style={styles.primaryButton}
-                            onPress={() => setPostModalVisible(true)}
-                        >
-                            <Text style={styles.primaryButtonText}>
-                                Ajouter un post
+        return (
+            <View style={styles.page}>
+                <ScrollView contentContainerStyle={styles.container}>
+                    <View style={styles.hero}>
+                        <View style={styles.heroText}>
+                            <Text style={styles.kicker}>Mood board partagé</Text>
+                            <Text style={styles.title}>
+                                Tes inspirations, tes threads, tes idées.
                             </Text>
-                        </Pressable>
+                            <Text style={styles.subtitle}>
+                                Connecté en tant que {connectedUser.username}
+                            </Text>
+                        </View>
 
-                        {connectedUser.is_moderator ? (
+                        <View style={styles.actions}>
                             <Pressable
-                                style={styles.secondaryButton}
-                                onPress={() => setModeratorModalVisible(true)}
+                                style={styles.primaryButton}
+                                onPress={() => setPostModalVisible(true)}
                             >
-                                <Text style={styles.secondaryButtonText}>
-                                    Modération
+                                <Text style={styles.primaryButtonText}>
+                                    Ajouter un post
                                 </Text>
                             </Pressable>
-                        ) : null}
 
-                        <Pressable
-                            style={styles.ghostButton}
-                            onPress={loadThreads}
-                        >
-                            <Text style={styles.ghostButtonText}>Rafraîchir</Text>
-                        </Pressable>
+                            {connectedUser.is_moderator ? (
+                                <Pressable
+                                    style={styles.secondaryButton}
+                                    onPress={() => setModeratorModalVisible(true)}
+                                >
+                                    <Text style={styles.secondaryButtonText}>
+                                        Modération
+                                    </Text>
+                                </Pressable>
+                            ) : null}
 
-                        <Pressable
-                            style={styles.logoutButton}
-                            onPress={handleLogout}
-                            disabled={logoutLoading}
-                        >
-                            <Text style={styles.logoutButtonText}>
-                                {logoutLoading ? "..." : "Logout"}
-                            </Text>
-                        </Pressable>
+                            <Pressable
+                                style={styles.ghostButton}
+                                onPress={loadThreads}
+                            >
+                                <Text style={styles.ghostButtonText}>Rafraîchir</Text>
+                            </Pressable>
+
+                            <Pressable
+                                style={styles.logoutButton}
+                                onPress={handleLogout}
+                                disabled={logoutLoading}
+                            >
+                                <Text style={styles.logoutButtonText}>
+                                    {logoutLoading ? "..." : "Logout"}
+                                </Text>
+                            </Pressable>
+                        </View>
                     </View>
-                </View>
 
-                {loading ? (
-                    <ActivityIndicator style={styles.loader} />
-                ) : null}
+                    {loading ? (
+                        <ActivityIndicator style={styles.loader} />
+                    ) : null}
 
-                {error ? <Text style={styles.error}>{error}</Text> : null}
+                    {error ? (
+                        <Text style={styles.error}>
+                            {error instanceof Error
+                                ? error.message
+                                : typeof error === "string"
+                                    ? error
+                                    : JSON.stringify(error)}
+                        </Text>
+                    ) : null}
+                    <MasonryBoard
+                        threads={threads}
+                        onEditPost={setEditingPost}
+                    />
+                </ScrollView>
 
-                <MasonryBoard threads={threads} />
-            </ScrollView>
-
-            <PostModal
-                visible={postModalVisible}
-                threads={threads}
-                onClose={() => setPostModalVisible(false)}
-                onCreated={loadThreads}
-            />
+                <PostModal
+                    visible={postModalVisible}
+                    threads={threads}
+                    onClose={() => setPostModalVisible(false)}
+                    onCreated={loadThreads}
+                />
 
             <ModeratorModal
                 visible={moderatorModalVisible}
                 onClose={() => setModeratorModalVisible(false)}
                 onChanged={loadThreads}
+            />
+            <EditPostModal
+                visible={editingPost !== null}
+                post={editingPost}
+                onClose={() => setEditingPost(null)}
+                onUpdated={loadThreads}
             />
         </View>
     );
