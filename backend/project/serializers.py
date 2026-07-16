@@ -3,6 +3,7 @@ import secrets
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from .models import Thread, Post, PostMedia
+from django.urls import reverse
 
 User = get_user_model()
 
@@ -83,6 +84,8 @@ class ModeratorCreateUserSerializer(serializers.ModelSerializer):
         return data
 
 class PostMediaSerializer(serializers.ModelSerializer):
+    file = serializers.SerializerMethodField()
+
     class Meta:
         model = PostMedia
         fields = [
@@ -91,6 +94,19 @@ class PostMediaSerializer(serializers.ModelSerializer):
             "media_type",
             "order",
         ]
+
+    def get_file(self, obj):
+        request = self.context.get("request")
+
+        url = reverse(
+            "post-media-file",
+            kwargs={"media_id": obj.id},
+        )
+
+        if request:
+            return request.build_absolute_uri(url)
+
+        return url
 
 class PostSerializer(serializers.ModelSerializer):
     sender = MiniUserSerializer(read_only=True)

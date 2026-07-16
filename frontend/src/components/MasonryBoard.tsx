@@ -1,4 +1,10 @@
-import { useMemo, useRef, useState } from "react";
+import {
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from "react";
+
 import {
     Image,
     LayoutChangeEvent,
@@ -11,12 +17,17 @@ import {
     useWindowDimensions,
     View,
 } from "react-native";
+
 import {
     useVideoPlayer,
     VideoView,
 } from "expo-video";
 
-import { Post, PostMedia, Thread } from "../type/objects";
+import {
+    Post,
+    PostMedia,
+    Thread,
+} from "../type/objects";
 
 type Props = {
     threads: Thread[];
@@ -41,15 +52,43 @@ type DisplayMedia = {
     type: "image" | "video";
 };
 
+type MediaDimensions = {
+    width: number;
+    height: number;
+};
+
+const GAP = 16;
+const MIN_CARD_WIDTH = 260;
+const MAX_CARD_WIDTH = 330;
+
 function getColumnCount(width: number): number {
-    if (width < 650) return 1;
-    if (width < 950) return 2;
-    if (width < 1250) return 3;
-    return 4;
+    const usableWidth = Math.max(width - 32, MIN_CARD_WIDTH);
+
+    const count = Math.floor(
+        (usableWidth + GAP) / (MIN_CARD_WIDTH + GAP)
+    );
+
+    return Math.max(1, Math.min(count, 5));
 }
 
-function formatDate(value: Date | string | null | undefined): string {
-    if (!value) return "";
+function getColumnWidth(width: number, columnCount: number): number {
+    const usableWidth = Math.max(width - 32, MIN_CARD_WIDTH);
+
+    const rawWidth =
+        (usableWidth - GAP * (columnCount - 1)) / columnCount;
+
+    return Math.max(
+        MIN_CARD_WIDTH,
+        Math.min(rawWidth, MAX_CARD_WIDTH)
+    );
+}
+
+function formatDate(
+    value: Date | string | null | undefined
+): string {
+    if (!value) {
+        return "";
+    }
 
     const date = value instanceof Date ? value : new Date(value);
 
@@ -64,8 +103,12 @@ function formatDate(value: Date | string | null | undefined): string {
     });
 }
 
-function getMediaUrl(value: string | null | undefined): string {
-    if (!value) return "";
+function getMediaUrl(
+    value: string | null | undefined
+): string {
+    if (!value) {
+        return "";
+    }
 
     if (
         value.startsWith("http://") ||
@@ -74,13 +117,16 @@ function getMediaUrl(value: string | null | undefined): string {
         return value;
     }
 
-    const cleanValue = value.startsWith("/") ? value : `/${value}`;
+    const cleanValue = value.startsWith("/")
+        ? value
+        : `/${value}`;
 
     if (typeof window !== "undefined") {
         return `${window.location.origin}${cleanValue}`;
     }
 
     const backendUrl = process.env.EXPO_PUBLIC_API_URL ?? "";
+
     return `${backendUrl}${cleanValue}`;
 }
 
@@ -101,10 +147,15 @@ function buildDisplayMedia(post: Post): DisplayMedia[] {
                 return {
                     id: `${media.id}-${index}`,
                     uri,
-                    type: media.media_type === "video" ? "video" : "image",
+                    type:
+                        media.media_type === "video"
+                            ? "video"
+                            : "image",
                 } satisfies DisplayMedia;
             })
-            .filter(Boolean) as DisplayMedia[];
+            .filter(
+                (media): media is DisplayMedia => media !== null
+            );
     }
 
     const fallbackMedia: DisplayMedia[] = [];
@@ -114,7 +165,7 @@ function buildDisplayMedia(post: Post): DisplayMedia[] {
 
     if (imageUrl) {
         fallbackMedia.push({
-            id: "legacy-image",
+            id: `legacy-image-${post.id}`,
             uri: imageUrl,
             type: "image",
         });
@@ -122,7 +173,7 @@ function buildDisplayMedia(post: Post): DisplayMedia[] {
 
     if (videoUrl) {
         fallbackMedia.push({
-            id: "legacy-video",
+            id: `legacy-video-${post.id}`,
             uri: videoUrl,
             type: "video",
         });
@@ -133,16 +184,20 @@ function buildDisplayMedia(post: Post): DisplayMedia[] {
 
 function estimatePostHeight(post: Post): number {
     const messageLength = String(post.message ?? "").length;
-    const tagCount = Array.isArray(post.tags) ? post.tags.length : 0;
+
+    const tagCount = Array.isArray(post.tags)
+        ? post.tags.length
+        : 0;
+
     const mediaCount = buildDisplayMedia(post).length;
 
-    let height = 165;
+    let height = 150;
 
-    height += Math.min(messageLength * 0.3, 150);
+    height += Math.min(messageLength * 0.35, 160);
     height += tagCount * 8;
 
     if (mediaCount > 0) {
-        height += 330;
+        height += 320;
     }
 
     if (post.posted) {
@@ -180,37 +235,54 @@ function buildColumns(
     return columns;
 }
 
+function getSafeMediaSize(
+    containerWidth: number,
+    mediaWidth: number,
+    mediaHeight: number
+): { width: number; height: number } {
+    if (
+        containerWidth <= 0 ||
+        mediaWidth <= 0 ||
+        mediaHeight <= 0
+    ) {
+        return {
+            width: containerWidth,
+            height: 260,
+        };
+    }
+
+    const ratio = mediaWidth / mediaHeight;
+
+    const maxHeight =
+        containerWidth < 500
+            ? Math.min(containerWidth * 1.55, 620)
+            : Math.min(containerWidth * 1.4, 700);
+
+    let width = containerWidth;
+    let height = containerWidth / ratio;
+
+    if (height > maxHeight) {
+        height = maxHeight;
+        width = height * ratio;
+    }
+
+    return {
+        width: Math.max(120, width),
+        height: Math.max(120, height),
+    };
+}
+
 type AutoImageProps = {
     uri: string;
     width: number;
+    height: number;
 };
 
-function AutoImage({ uri, width }: AutoImageProps) {
-    const [height, setHeight] = useState<number>(260);
-
-    useMemo(() => {
-        if (!uri || width <= 0) {
-            return;
-        }
-
-        Image.getSize(
-            uri,
-            (imageWidth, imageHeight) => {
-                if (!imageWidth || !imageHeight) {
-                    return;
-                }
-
-                const ratio = imageHeight / imageWidth;
-                const computedHeight = width * ratio;
-
-                setHeight(computedHeight);
-            },
-            () => {
-                setHeight(260);
-            }
-        );
-    }, [uri, width]);
-
+function AutoImage({
+    uri,
+    width,
+    height,
+}: AutoImageProps) {
     return (
         <Image
             source={{ uri }}
@@ -229,9 +301,14 @@ function AutoImage({ uri, width }: AutoImageProps) {
 type PostVideoProps = {
     uri: string;
     width: number;
+    height: number;
 };
 
-function PostVideo({ uri, width }: PostVideoProps) {
+function PostVideo({
+    uri,
+    width,
+    height,
+}: PostVideoProps) {
     const player = useVideoPlayer(uri, (videoPlayer) => {
         videoPlayer.loop = false;
     });
@@ -243,7 +320,7 @@ function PostVideo({ uri, width }: PostVideoProps) {
                 styles.video,
                 {
                     width,
-                    height: Math.min(width * 0.75, 420),
+                    height,
                 },
             ]}
             nativeControls
@@ -261,9 +338,77 @@ function MediaCarousel({ media }: MediaCarouselProps) {
 
     const [containerWidth, setContainerWidth] = useState(0);
     const [activeIndex, setActiveIndex] = useState(0);
+    const [mediaDimensions, setMediaDimensions] = useState<
+        Record<number, MediaDimensions>
+    >({});
 
     function handleLayout(event: LayoutChangeEvent) {
-        setContainerWidth(event.nativeEvent.layout.width);
+        const nextWidth = event.nativeEvent.layout.width;
+
+        if (nextWidth > 0 && Math.abs(nextWidth - containerWidth) > 1) {
+            setContainerWidth(nextWidth);
+        }
+    }
+
+    function updateMediaDimensions(
+        index: number,
+        width: number,
+        height: number
+    ) {
+        setMediaDimensions((currentDimensions) => {
+            const current = currentDimensions[index];
+
+            if (
+                current &&
+                current.width === width &&
+                current.height === height
+            ) {
+                return currentDimensions;
+            }
+
+            return {
+                ...currentDimensions,
+                [index]: {
+                    width,
+                    height,
+                },
+            };
+        });
+    }
+
+    function getCurrentHeight(): number {
+        const dimensions = mediaDimensions[activeIndex];
+
+        if (!dimensions) {
+            return Math.min(containerWidth * 0.75, 420);
+        }
+
+        return getSafeMediaSize(
+            containerWidth,
+            dimensions.width,
+            dimensions.height
+        ).height;
+    }
+
+    function updateActiveIndexFromOffset(offsetX: number) {
+        if (containerWidth <= 0 || media.length === 0) {
+            return;
+        }
+
+        const nextIndex = Math.round(offsetX / containerWidth);
+
+        const safeIndex = Math.max(
+            0,
+            Math.min(nextIndex, media.length - 1)
+        );
+
+        setActiveIndex((currentIndex) => {
+            if (currentIndex === safeIndex) {
+                return currentIndex;
+            }
+
+            return safeIndex;
+        });
     }
 
     function goToIndex(index: number) {
@@ -280,65 +425,152 @@ function MediaCarousel({ media }: MediaCarouselProps) {
 
         scrollRef.current?.scrollTo({
             x: safeIndex * containerWidth,
+            y: 0,
             animated: true,
         });
+    }
+
+    function handleScroll(
+        event: NativeSyntheticEvent<NativeScrollEvent>
+    ) {
+        updateActiveIndexFromOffset(
+            event.nativeEvent.contentOffset.x
+        );
     }
 
     function handleScrollEnd(
         event: NativeSyntheticEvent<NativeScrollEvent>
     ) {
-        if (containerWidth <= 0) {
+        updateActiveIndexFromOffset(
+            event.nativeEvent.contentOffset.x
+        );
+    }
+
+    useEffect(() => {
+        setActiveIndex(0);
+        setMediaDimensions({});
+
+        scrollRef.current?.scrollTo({
+            x: 0,
+            y: 0,
+            animated: false,
+        });
+    }, [media]);
+
+    useEffect(() => {
+        if (containerWidth <= 0 || media.length === 0) {
             return;
         }
 
-        const offsetX = event.nativeEvent.contentOffset.x;
-        const nextIndex = Math.round(offsetX / containerWidth);
+        media.forEach((item, index) => {
+            if (item.type === "video") {
+                updateMediaDimensions(index, 16, 9);
+                return;
+            }
 
-        setActiveIndex(
-            Math.max(0, Math.min(nextIndex, media.length - 1))
-        );
-    }
+            Image.getSize(
+                item.uri,
+                (imageWidth, imageHeight) => {
+                    updateMediaDimensions(
+                        index,
+                        imageWidth,
+                        imageHeight
+                    );
+                },
+                () => {
+                    updateMediaDimensions(index, 4, 3);
+                }
+            );
+        });
+    }, [containerWidth, media]);
 
     if (media.length === 0) {
         return null;
     }
 
+    const currentHeight = getCurrentHeight();
+
     return (
-        <View style={styles.carouselContainer} onLayout={handleLayout}>
+        <View
+            style={styles.carouselContainer}
+            onLayout={handleLayout}
+        >
             {containerWidth > 0 ? (
-                <View style={styles.carouselWrapper}>
+                <View
+                    style={[
+                        styles.carouselWrapper,
+                        {
+                            height: currentHeight,
+                        },
+                    ]}
+                >
                     <ScrollView
                         ref={scrollRef}
                         horizontal
                         pagingEnabled
+                        nestedScrollEnabled
+                        decelerationRate="fast"
+                        disableIntervalMomentum
                         showsHorizontalScrollIndicator={false}
-                        onMomentumScrollEnd={handleScrollEnd}
                         scrollEventThrottle={16}
-                        style={styles.carousel}
+                        onScroll={handleScroll}
+                        onMomentumScrollEnd={handleScrollEnd}
+                        onScrollEndDrag={handleScrollEnd}
+                        style={[
+                            styles.carousel,
+                            {
+                                height: currentHeight,
+                            },
+                        ]}
+                        contentContainerStyle={{
+                            height: currentHeight,
+                            alignItems: "center",
+                        }}
                     >
-                        {media.map((item) => (
-                            <View
-                                key={item.id}
-                                style={[
-                                    styles.carouselSlide,
-                                    {
-                                        width: containerWidth,
-                                    },
-                                ]}
-                            >
-                                {item.type === "video" ? (
-                                    <PostVideo
-                                        uri={item.uri}
-                                        width={containerWidth}
-                                    />
-                                ) : (
-                                    <AutoImage
-                                        uri={item.uri}
-                                        width={containerWidth}
-                                    />
-                                )}
-                            </View>
-                        ))}
+                        {media.map((item, index) => {
+                            const itemDimensions = mediaDimensions[index];
+
+                            let itemWidth = containerWidth;
+                            let itemHeight = currentHeight;
+
+                            if (itemDimensions) {
+                                const safeSize = getSafeMediaSize(
+                                    containerWidth,
+                                    itemDimensions.width,
+                                    itemDimensions.height
+                                );
+
+                                itemWidth = safeSize.width;
+                                itemHeight = safeSize.height;
+                            }
+
+                            return (
+                                <View
+                                    key={item.id}
+                                    style={[
+                                        styles.carouselSlide,
+                                        {
+                                            width: containerWidth,
+                                            height: currentHeight,
+                                        },
+                                    ]}
+                                >
+                                    {item.type === "video" ? (
+                                        <PostVideo
+                                            uri={item.uri}
+                                            width={itemWidth}
+                                            height={itemHeight}
+                                        />
+                                    ) : (
+                                        <AutoImage
+                                            uri={item.uri}
+                                            width={itemWidth}
+                                            height={itemHeight}
+                                        />
+                                    )}
+                                </View>
+                            );
+                        })}
                     </ScrollView>
 
                     {media.length > 1 ? (
@@ -350,7 +582,9 @@ function MediaCarousel({ media }: MediaCarouselProps) {
                                     activeIndex === 0 &&
                                         styles.carouselArrowDisabled,
                                 ]}
-                                onPress={() => goToIndex(activeIndex - 1)}
+                                onPress={() =>
+                                    goToIndex(activeIndex - 1)
+                                }
                                 disabled={activeIndex === 0}
                             >
                                 <Text style={styles.carouselArrowText}>
@@ -365,8 +599,12 @@ function MediaCarousel({ media }: MediaCarouselProps) {
                                     activeIndex === media.length - 1 &&
                                         styles.carouselArrowDisabled,
                                 ]}
-                                onPress={() => goToIndex(activeIndex + 1)}
-                                disabled={activeIndex === media.length - 1}
+                                onPress={() =>
+                                    goToIndex(activeIndex + 1)
+                                }
+                                disabled={
+                                    activeIndex === media.length - 1
+                                }
                             >
                                 <Text style={styles.carouselArrowText}>
                                     ›
@@ -386,7 +624,8 @@ function MediaCarousel({ media }: MediaCarouselProps) {
                                 onPress={() => goToIndex(index)}
                                 style={[
                                     styles.dot,
-                                    index === activeIndex && styles.dotActive,
+                                    index === activeIndex &&
+                                        styles.dotActive,
                                 ]}
                             />
                         ))}
@@ -406,11 +645,15 @@ type PostCardProps = {
     onEditPost?: (post: Post) => void;
 };
 
-function PostCard({ item, onEditPost }: PostCardProps) {
+function PostCard({
+    item,
+    onEditPost,
+}: PostCardProps) {
     const { post, threadName } = item;
 
     const media = buildDisplayMedia(post);
     const displayedDate = formatDate(post.posted);
+    const avatarUrl = getMediaUrl(post.sender?.profilPicture);
 
     return (
         <View style={styles.card}>
@@ -420,39 +663,47 @@ function PostCard({ item, onEditPost }: PostCardProps) {
                         style={styles.threadName}
                         numberOfLines={1}
                     >
+                        {String(threadName ?? "Thread")}
+                    </Text>
+
+                    <Text
+                        style={styles.author}
+                        numberOfLines={1}
+                    >
                         {String(
                             post.sender?.username ?? "Utilisateur"
                         )}
                     </Text>
                 </View>
-                
-                {post.can_edit ? (
-                    <Pressable
-                        style={styles.editButton}
-                        onPress={() => onEditPost?.(post)}
-                    >
-                        <Text style={styles.editButtonText}>
-                            Modifier
-                        </Text>
-                    </Pressable>
-                ) : null}
 
-                {post.sender?.profilPicture ? (
-                    <Image
-                        source={{
-                            uri: getMediaUrl(post.sender.profilPicture),
-                        }}
-                        style={styles.avatar}
-                    />
-                ) : (
-                    <View style={styles.avatarFallback}>
-                        <Text style={styles.avatarLetter}>
-                            {String(
-                                post.sender?.username?.[0] ?? "U"
-                            ).toUpperCase()}
-                        </Text>
-                    </View>
-                )}
+                <View style={styles.headerActions}>
+                    {post.can_edit && onEditPost ? (
+                        <Pressable
+                            style={styles.editButton}
+                            onPress={() => onEditPost(post)}
+                        >
+                            <Text style={styles.editButtonText}>
+                                Modifier
+                            </Text>
+                        </Pressable>
+                    ) : null}
+
+                    {avatarUrl ? (
+                        <Image
+                            source={{ uri: avatarUrl }}
+                            style={styles.avatar}
+                            resizeMode="cover"
+                        />
+                    ) : (
+                        <View style={styles.avatarFallback}>
+                            <Text style={styles.avatarLetter}>
+                                {String(
+                                    post.sender?.username?.[0] ?? "U"
+                                ).toUpperCase()}
+                            </Text>
+                        </View>
+                    )}
+                </View>
             </View>
 
             <MediaCarousel media={media} />
@@ -487,10 +738,14 @@ function PostCard({ item, onEditPost }: PostCardProps) {
     );
 }
 
-export function MasonryBoard({ threads, onEditPost }: Props) {
+export function MasonryBoard({
+    threads,
+    onEditPost,
+}: Props) {
     const { width } = useWindowDimensions();
 
     const columnCount = getColumnCount(width);
+    const columnWidth = getColumnWidth(width, columnCount);
 
     const items = useMemo<BoardItem[]>(() => {
         const boardItems: BoardItem[] = [];
@@ -540,7 +795,7 @@ export function MasonryBoard({ threads, onEditPost }: Props) {
                 </Text>
 
                 <Text style={styles.emptyText}>
-                    Ajoute un premier post dans un thread pour démarrer le mood board.
+                    Aucun post ne correspond à ce thread ou à ces tags.
                 </Text>
             </View>
         );
@@ -556,7 +811,12 @@ export function MasonryBoard({ threads, onEditPost }: Props) {
                 {columns.map((column, columnIndex) => (
                     <View
                         key={`column-${columnIndex}`}
-                        style={styles.column}
+                        style={[
+                            styles.column,
+                            {
+                                width: columnWidth,
+                            },
+                        ]}
                     >
                         {column.items.map((item) => (
                             <PostCard
@@ -586,13 +846,12 @@ const styles = StyleSheet.create({
         width: "100%",
         flexDirection: "row",
         alignItems: "flex-start",
-        gap: 16,
+        justifyContent: "center",
+        gap: GAP,
     },
 
     column: {
-        flex: 1,
-        minWidth: 0,
-        gap: 16,
+        gap: GAP,
     },
 
     card: {
@@ -610,6 +869,8 @@ const styles = StyleSheet.create({
             width: 0,
             height: 8,
         },
+
+        elevation: 3,
     },
 
     cardHeader: {
@@ -621,7 +882,14 @@ const styles = StyleSheet.create({
 
     headerText: {
         flex: 1,
+        minWidth: 0,
         paddingRight: 10,
+    },
+
+    headerActions: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
     },
 
     threadName: {
@@ -634,6 +902,21 @@ const styles = StyleSheet.create({
         marginTop: 3,
         color: "#8A6F5A",
         fontSize: 13,
+    },
+
+    editButton: {
+        borderWidth: 1,
+        borderColor: "#F1C6A8",
+        borderRadius: 999,
+        paddingHorizontal: 12,
+        paddingVertical: 7,
+        backgroundColor: "#FFF7ED",
+    },
+
+    editButtonText: {
+        color: "#E76F51",
+        fontSize: 12,
+        fontWeight: "800",
     },
 
     avatar: {
@@ -663,6 +946,14 @@ const styles = StyleSheet.create({
         marginBottom: 14,
     },
 
+    carouselWrapper: {
+        width: "100%",
+        position: "relative",
+        overflow: "hidden",
+        borderRadius: 17,
+        backgroundColor: "transparent",
+    },
+
     carousel: {
         width: "100%",
     },
@@ -675,7 +966,6 @@ const styles = StyleSheet.create({
 
     autoImage: {
         borderRadius: 17,
-        backgroundColor: "#F5E7DB",
     },
 
     video: {
@@ -692,9 +982,12 @@ const styles = StyleSheet.create({
     },
 
     dots: {
+        flex: 1,
         flexDirection: "row",
         alignItems: "center",
+        flexWrap: "wrap",
         gap: 5,
+        paddingRight: 12,
     },
 
     dot: {
@@ -712,6 +1005,38 @@ const styles = StyleSheet.create({
     counter: {
         color: "#8A6F5A",
         fontSize: 12,
+        fontWeight: "700",
+    },
+
+    carouselArrow: {
+        position: "absolute",
+        top: "50%",
+        width: 38,
+        height: 38,
+        marginTop: -19,
+        borderRadius: 19,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "rgba(47, 36, 29, 0.72)",
+        zIndex: 10,
+    },
+
+    carouselArrowLeft: {
+        left: 8,
+    },
+
+    carouselArrowRight: {
+        right: 8,
+    },
+
+    carouselArrowDisabled: {
+        opacity: 0.25,
+    },
+
+    carouselArrowText: {
+        color: "#FFFFFF",
+        fontSize: 34,
+        lineHeight: 36,
         fontWeight: "700",
     },
 
@@ -775,56 +1100,4 @@ const styles = StyleSheet.create({
         lineHeight: 22,
         textAlign: "center",
     },
-
-    carouselWrapper: {
-        width: "100%",
-        position: "relative",
-    },
-
-    carouselArrow: {
-        position: "absolute",
-        top: "50%",
-        width: 38,
-        height: 38,
-        marginTop: -19,
-        borderRadius: 19,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "rgba(47, 36, 29, 0.72)",
-    },
-
-    carouselArrowLeft: {
-        left: 8,
-    },
-
-    carouselArrowRight: {
-        right: 8,
-    },
-
-    carouselArrowDisabled: {
-        opacity: 0.25,
-    },
-
-    carouselArrowText: {
-        color: "#FFFFFF",
-        fontSize: 34,
-        lineHeight: 36,
-        fontWeight: "700",
-    },
-
-    editButton: {
-        marginRight: 8,
-        borderRadius: 999,
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        backgroundColor: "#FFF7ED",
-        borderWidth: 1,
-        borderColor: "#F1C6A8",
-    },
-
-    editButtonText: {
-        color: "#E76F51",
-        fontSize: 12,
-        fontWeight: "800",
-    },
-    });
+});

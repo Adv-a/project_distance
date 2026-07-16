@@ -12,6 +12,12 @@ from .permissions import IsModerator, HasChangedInitialPassword, is_moderator
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 import json
+from django.http import FileResponse, Http404
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+
+from .media_utils import compress_image_upload
+from .models import PostMedia
 
 from .models import Thread, Post, PostMedia
 from .serializers import UserSerializer, ModeratorCreateUserSerializer, ThreadSerializer, PostSerializer
@@ -203,8 +209,12 @@ class PostViewSet(viewsets.ModelViewSet):
 
             if content_type.startswith("image/"):
                 media_type = PostMedia.MediaType.IMAGE
+                final_file = compress_image_upload(file)
+
             elif content_type.startswith("video/"):
                 media_type = PostMedia.MediaType.VIDEO
+                final_file = file
+
             else:
                 raise ValidationError(
                     f"Type de fichier non supporté : {content_type}"
@@ -212,7 +222,7 @@ class PostViewSet(viewsets.ModelViewSet):
 
             PostMedia.objects.create(
                 post=post,
-                file=file,
+                file=final_file,
                 media_type=media_type,
                 order=current_max_order + index,
             )
@@ -260,3 +270,43 @@ class PostViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         self._check_can_edit_post(instance)
         instance.delete()
+
+class PostMediaFileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, media_id):
+        try:
+            media = PostMedia.objects.select_related(
+                "post",
+                "post__thread",
+                "post__sender",
+            ).get(id=media_id)
+        except PostMedia.DoesNotExist:
+            raise Http404("Média introuvable.")
+
+        user = request.user
+        post = media.post
+
+        can_access = (
+            user.is_staff
+            or post.sender_id == user.id
+            or post.thread.members.filter(id=user.id).exists()
+        )
+
+        if not can_access:
+            raise Http404("Média introuvable.")
+
+        if not media.file:
+            raise Http404("Fichier introuvable.")
+
+        content_type = "application/octet-stream"
+
+        if media.media_type == PostMedia.MediaType.IMAGE:
+            content_type = "image/jpeg"
+        elif media.media_type == PostMedia.MediaType.VIDEO:
+            content_type = "video/mp4"
+
+        return FileResponse(
+            media.file.open("rb"),
+            content_type=content_type,
+        )
