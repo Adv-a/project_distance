@@ -8,6 +8,7 @@ import {
 import {
     Image,
     LayoutChangeEvent,
+    Modal,
     NativeScrollEvent,
     NativeSyntheticEvent,
     Pressable,
@@ -46,6 +47,11 @@ type MasonryColumn = {
     estimatedHeight: number;
 };
 
+type LightboxState = {
+    media: DisplayMedia[];
+    index: number;
+} | null;
+
 type DisplayMedia = {
     id: string;
     uri: string;
@@ -56,6 +62,25 @@ type MediaDimensions = {
     width: number;
     height: number;
 };
+
+const mediaDimensionCache = new Map<string, MediaDimensions>();
+
+function getMediaKey(media: DisplayMedia[]): string {
+    return media
+        .map((item) => `${item.id}:${item.uri}`)
+        .join("|");
+}
+
+function getCachedMediaDimensions(uri: string): MediaDimensions | null {
+    return mediaDimensionCache.get(uri) ?? null;
+}
+
+function setCachedMediaDimensions(
+    uri: string,
+    dimensions: MediaDimensions
+) {
+    mediaDimensionCache.set(uri, dimensions);
+}
 
 const GAP = 16;
 const MIN_CARD_WIDTH = 260;
@@ -276,25 +301,29 @@ type AutoImageProps = {
     uri: string;
     width: number;
     height: number;
+    onPress?: () => void;
 };
 
 function AutoImage({
     uri,
     width,
     height,
+    onPress,
 }: AutoImageProps) {
     return (
-        <Image
-            source={{ uri }}
-            style={[
-                styles.autoImage,
-                {
-                    width,
-                    height,
-                },
-            ]}
-            resizeMode="contain"
-        />
+        <Pressable onPress={onPress} disabled={!onPress}>
+            <Image
+                source={{ uri }}
+                style={[
+                    styles.autoImage,
+                    {
+                        width,
+                        height,
+                    },
+                ]}
+                resizeMode="contain"
+            />
+        </Pressable>
     );
 }
 
@@ -336,6 +365,8 @@ type MediaCarouselProps = {
 function MediaCarousel({ media }: MediaCarouselProps) {
     const scrollRef = useRef<ScrollView | null>(null);
 
+    const mediaKey = useMemo(() => getMediaKey(media), [media]);
+
     const [containerWidth, setContainerWidth] = useState(0);
     const [activeIndex, setActiveIndex] = useState(0);
     const [mediaDimensions, setMediaDimensions] = useState<
@@ -352,9 +383,14 @@ function MediaCarousel({ media }: MediaCarouselProps) {
 
     function updateMediaDimensions(
         index: number,
+        uri: string,
         width: number,
         height: number
     ) {
+        const dimensions = { width, height };
+
+        setCachedMediaDimensions(uri, dimensions);
+
         setMediaDimensions((currentDimensions) => {
             const current = currentDimensions[index];
 
@@ -368,10 +404,7 @@ function MediaCarousel({ media }: MediaCarouselProps) {
 
             return {
                 ...currentDimensions,
-                [index]: {
-                    width,
-                    height,
-                },
+                [index]: dimensions,
             };
         });
     }
@@ -430,14 +463,6 @@ function MediaCarousel({ media }: MediaCarouselProps) {
         });
     }
 
-    function handleScroll(
-        event: NativeSyntheticEvent<NativeScrollEvent>
-    ) {
-        updateActiveIndexFromOffset(
-            event.nativeEvent.contentOffset.x
-        );
-    }
-
     function handleScrollEnd(
         event: NativeSyntheticEvent<NativeScrollEvent>
     ) {
@@ -448,14 +473,25 @@ function MediaCarousel({ media }: MediaCarouselProps) {
 
     useEffect(() => {
         setActiveIndex(0);
-        setMediaDimensions({});
+
+        const cachedDimensions: Record<number, MediaDimensions> = {};
+
+        media.forEach((item, index) => {
+            const cached = getCachedMediaDimensions(item.uri);
+
+            if (cached) {
+                cachedDimensions[index] = cached;
+            }
+        });
+
+        setMediaDimensions(cachedDimensions);
 
         scrollRef.current?.scrollTo({
             x: 0,
             y: 0,
             animated: false,
         });
-    }, [media]);
+    }, [mediaKey]);
 
     useEffect(() => {
         if (containerWidth <= 0 || media.length === 0) {
@@ -463,8 +499,20 @@ function MediaCarousel({ media }: MediaCarouselProps) {
         }
 
         media.forEach((item, index) => {
+            const cached = getCachedMediaDimensions(item.uri);
+
+            if (cached) {
+                updateMediaDimensions(
+                    index,
+                    item.uri,
+                    cached.width,
+                    cached.height
+                );
+                return;
+            }
+
             if (item.type === "video") {
-                updateMediaDimensions(index, 16, 9);
+                updateMediaDimensions(index, item.uri, 16, 9);
                 return;
             }
 
@@ -473,16 +521,17 @@ function MediaCarousel({ media }: MediaCarouselProps) {
                 (imageWidth, imageHeight) => {
                     updateMediaDimensions(
                         index,
+                        item.uri,
                         imageWidth,
                         imageHeight
                     );
                 },
                 () => {
-                    updateMediaDimensions(index, 4, 3);
+                    updateMediaDimensions(index, item.uri, 4, 3);
                 }
             );
         });
-    }, [containerWidth, media]);
+    }, [containerWidth, mediaKey]);
 
     if (media.length === 0) {
         return null;
@@ -512,8 +561,7 @@ function MediaCarousel({ media }: MediaCarouselProps) {
                         decelerationRate="fast"
                         disableIntervalMomentum
                         showsHorizontalScrollIndicator={false}
-                        scrollEventThrottle={16}
-                        onScroll={handleScroll}
+                        scrollEventThrottle={32}
                         onMomentumScrollEnd={handleScrollEnd}
                         onScrollEndDrag={handleScrollEnd}
                         style={[
@@ -643,11 +691,149 @@ function MediaCarousel({ media }: MediaCarouselProps) {
 type PostCardProps = {
     item: BoardItem;
     onEditPost?: (post: Post) => void;
+    onOpenImage?: (media: DisplayMedia[], index: number) => void;
 };
+
+type ImageLightboxProps = {
+    state: LightboxState;
+    onClose: () => void;
+    onChangeIndex: (index: number) => void;
+};
+
+function ImageLightbox({
+    state,
+    onClose,
+    onChangeIndex,
+}: ImageLightboxProps) {
+    const { width, height } = useWindowDimensions();
+    const [zoomed, setZoomed] = useState(false);
+
+    useEffect(() => {
+        setZoomed(false);
+    }, [state?.index]);
+
+    if (!state) {
+        return null;
+    }
+
+    const imageMedia = state.media.filter(
+        (item) => item.type === "image"
+    );
+
+    const activeImage = imageMedia[state.index];
+
+    if (!activeImage) {
+        return null;
+    }
+
+    const canGoPrevious = state.index > 0;
+    const canGoNext = state.index < imageMedia.length - 1;
+
+    const imageWidth = zoomed ? width * 1.8 : width;
+    const imageHeight = zoomed ? height * 1.8 : height * 0.82;
+
+    return (
+        <Modal
+            visible
+            transparent
+            animationType="fade"
+            onRequestClose={onClose}
+        >
+            <View style={styles.lightboxOverlay}>
+                <View style={styles.lightboxHeader}>
+                    <Pressable
+                        style={styles.lightboxButton}
+                        onPress={onClose}
+                    >
+                        <Text style={styles.lightboxButtonText}>
+                            Fermer
+                        </Text>
+                    </Pressable>
+
+                    <Text style={styles.lightboxCounter}>
+                        {state.index + 1} / {imageMedia.length}
+                    </Text>
+
+                    <Pressable
+                        style={styles.lightboxButton}
+                        onPress={() => setZoomed((value) => !value)}
+                    >
+                        <Text style={styles.lightboxButtonText}>
+                            {zoomed ? "Réduire" : "Zoom"}
+                        </Text>
+                    </Pressable>
+                </View>
+
+                <View style={styles.lightboxBody}>
+                    {canGoPrevious ? (
+                        <Pressable
+                            style={[
+                                styles.lightboxArrow,
+                                styles.lightboxArrowLeft,
+                            ]}
+                            onPress={() => onChangeIndex(state.index - 1)}
+                        >
+                            <Text style={styles.lightboxArrowText}>
+                                ‹
+                            </Text>
+                        </Pressable>
+                    ) : null}
+
+                    <ScrollView
+                        style={styles.lightboxScroll}
+                        contentContainerStyle={styles.lightboxScrollContent}
+                        maximumZoomScale={3}
+                        minimumZoomScale={1}
+                        showsVerticalScrollIndicator={false}
+                        showsHorizontalScrollIndicator={false}
+                    >
+                        <ScrollView
+                            horizontal
+                            contentContainerStyle={styles.lightboxScrollContent}
+                            showsHorizontalScrollIndicator={false}
+                        >
+                            <Pressable
+                                onPress={() => setZoomed((value) => !value)}
+                            >
+                                <Image
+                                    source={{ uri: activeImage.uri }}
+                                    style={{
+                                        width: imageWidth,
+                                        height: imageHeight,
+                                    }}
+                                    resizeMode="contain"
+                                />
+                            </Pressable>
+                        </ScrollView>
+                    </ScrollView>
+
+                    {canGoNext ? (
+                        <Pressable
+                            style={[
+                                styles.lightboxArrow,
+                                styles.lightboxArrowRight,
+                            ]}
+                            onPress={() => onChangeIndex(state.index + 1)}
+                        >
+                            <Text style={styles.lightboxArrowText}>
+                                ›
+                            </Text>
+                        </Pressable>
+                    ) : null}
+                </View>
+
+                <Text style={styles.lightboxHint}>
+                    Clique ou tape sur l’image pour zoomer.
+                </Text>
+            </View>
+        </Modal>
+    );
+}
 
 function PostCard({
     item,
     onEditPost,
+    onOpenImage,
 }: PostCardProps) {
     const { post, threadName } = item;
 
@@ -706,7 +892,7 @@ function PostCard({
                 </View>
             </View>
 
-            <MediaCarousel media={media} />
+            <MediaCarousel media={media} onOpenImage={onOpenImage} />
 
             {post.message ? (
                 <Text style={styles.message}>
@@ -746,10 +932,10 @@ export function MasonryBoard({
 
     const columnCount = getColumnCount(width);
     const columnWidth = getColumnWidth(width, columnCount);
+    const [lightboxState, setLightboxState] = useState<LightboxState>(null);
 
     const items = useMemo<BoardItem[]>(() => {
         const boardItems: BoardItem[] = [];
-
         threads.forEach((thread) => {
             const posts = Array.isArray(thread.posts)
                 ? thread.posts
@@ -801,34 +987,74 @@ export function MasonryBoard({
         );
     }
 
+    function openLightbox(media: DisplayMedia[], index: number) {
+        const imageMedia = media.filter((item) => item.type === "image");
+
+        const clickedImage = media[index];
+
+        const imageIndex = imageMedia.findIndex(
+            (item) => item.id === clickedImage?.id
+        );
+
+        setLightboxState({
+            media: imageMedia,
+            index: imageIndex >= 0 ? imageIndex : 0,
+        });
+    }
+
+    function changeLightboxIndex(index: number) {
+        setLightboxState((currentState) => {
+            if (!currentState) {
+                return currentState;
+            }
+
+            const safeIndex = Math.max(
+                0,
+                Math.min(index, currentState.media.length - 1)
+            );
+
+            return {
+                ...currentState,
+                index: safeIndex,
+            };
+        });
+    }
     return (
-        <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.board}
-            showsVerticalScrollIndicator={false}
-        >
-            <View style={styles.columns}>
-                {columns.map((column, columnIndex) => (
-                    <View
-                        key={`column-${columnIndex}`}
-                        style={[
-                            styles.column,
-                            {
-                                width: columnWidth,
-                            },
-                        ]}
-                    >
-                        {column.items.map((item) => (
-                            <PostCard
-                                key={item.key}
-                                item={item}
-                                onEditPost={onEditPost}
-                            />
-                        ))}
-                    </View>
-                ))}
-            </View>
-        </ScrollView>
+        <>
+            <ScrollView
+                style={styles.scrollView}
+                contentContainerStyle={styles.board}
+                showsVerticalScrollIndicator={false}
+            >
+                <View style={styles.columns}>
+                    {columns.map((column, columnIndex) => (
+                        <View
+                            key={`column-${columnIndex}`}
+                            style={[
+                                styles.column,
+                                {
+                                    width: columnWidth,
+                                },
+                            ]}
+                        >
+                            {column.items.map((item) => (
+                                <PostCard
+                                    key={item.key}
+                                    item={item}
+                                    onEditPost={onEditPost}
+                                    onOpenImage={openLightbox}
+                                />
+                            ))}
+                        </View>
+                    ))}
+                </View>
+            </ScrollView>
+            <ImageLightbox
+                state={lightboxState}
+                onClose={() => setLightboxState(null)}
+                onChangeIndex={changeLightboxIndex}
+            />
+        </>
     );
 }
 
@@ -1098,6 +1324,91 @@ const styles = StyleSheet.create({
         color: "#8A6F5A",
         fontSize: 15,
         lineHeight: 22,
+        textAlign: "center",
+    },
+
+    lightboxOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(0, 0, 0, 0.92)",
+    },
+
+    lightboxHeader: {
+        minHeight: 64,
+        paddingHorizontal: 16,
+        paddingTop: 14,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+    },
+
+    lightboxButton: {
+        borderRadius: 999,
+        paddingHorizontal: 14,
+        paddingVertical: 9,
+        backgroundColor: "rgba(255, 255, 255, 0.14)",
+    },
+
+    lightboxButtonText: {
+        color: "#FFFFFF",
+        fontSize: 13,
+        fontWeight: "800",
+    },
+
+    lightboxCounter: {
+        color: "#FFFFFF",
+        fontSize: 14,
+        fontWeight: "800",
+    },
+
+    lightboxBody: {
+        flex: 1,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+
+    lightboxScroll: {
+        flex: 1,
+        width: "100%",
+    },
+
+    lightboxScrollContent: {
+        flexGrow: 1,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+
+    lightboxArrow: {
+        position: "absolute",
+        top: "50%",
+        width: 48,
+        height: 48,
+        marginTop: -24,
+        borderRadius: 24,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "rgba(255, 255, 255, 0.16)",
+        zIndex: 20,
+    },
+
+    lightboxArrowLeft: {
+        left: 14,
+    },
+
+    lightboxArrowRight: {
+        right: 14,
+    },
+
+    lightboxArrowText: {
+        color: "#FFFFFF",
+        fontSize: 42,
+        lineHeight: 44,
+        fontWeight: "700",
+    },
+
+    lightboxHint: {
+        paddingBottom: 18,
+        color: "rgba(255, 255, 255, 0.72)",
+        fontSize: 12,
         textAlign: "center",
     },
 });
